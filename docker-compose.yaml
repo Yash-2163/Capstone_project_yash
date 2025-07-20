@@ -1,0 +1,204 @@
+version: '3.8'
+
+services:
+  # PostgreSQL for Airflow metadata and application data
+  postgres:
+    image: postgres:13
+    container_name: airflow-postgres
+    environment:
+      POSTGRES_USER: airflow
+      POSTGRES_PASSWORD: airflow
+      POSTGRES_DB: airflow  # <-- Airflow expects a DB named airflow
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  # Airflow Webserver
+  airflow-webserver:
+    build: .
+    container_name: airflow-webserver
+    depends_on:
+      - postgres
+    environment:
+      - AIRFLOW__CORE__EXECUTOR=LocalExecutor
+      - AIRFLOW__CORE__SQL_ALCHEMY_CONN=postgresql+psycopg2://airflow:airflow@postgres:5432/airflow
+      - _AIRFLOW_WWW_USER_USERNAME=admin
+      - _AIRFLOW_WWW_USER_PASSWORD=admin
+    volumes:
+      - ./dags:/opt/airflow/dags
+      - ./drift_detection:/opt/airflow/drift_detection
+      - ./model_training:/opt/airflow/model_training
+      - ./final_model:/opt/airflow/final_model
+      - ./logs:/opt/airflow/logs
+      - ./plugins:/opt/airflow/plugins
+      - ./data:/opt/airflow/data
+    ports:
+      - "8080:8080"
+    command: >
+      bash -c "
+        airflow db upgrade &&
+        airflow users create --username admin --password admin --firstname admin --lastname admin --role Admin --email admin@example.com &&
+        airflow webserver
+      "
+
+  # Airflow Scheduler
+  airflow-scheduler:
+    build: .
+    container_name: airflow-scheduler
+    depends_on:
+      - postgres
+      - mlflow
+    environment:
+      - AIRFLOW__CORE__EXECUTOR=LocalExecutor
+      - AIRFLOW__CORE__SQL_ALCHEMY_CONN=postgresql+psycopg2://airflow:airflow@postgres:5432/airflow
+      - MLFLOW_TRACKING_URI=http://mlflow:5000
+    volumes:
+      - ./dags:/opt/airflow/dags
+      - ./drift_detection:/opt/airflow/drift_detection
+      - ./model_training:/opt/airflow/model_training
+      - ./final_model:/opt/airflow/final_model
+      - ./logs:/opt/airflow/logs
+      - ./plugins:/opt/airflow/plugins
+      - ./data:/opt/airflow/data
+      - ./mlruns:/mlflow/mlruns
+    command: >
+      bash -c "
+        airflow db upgrade &&
+        airflow scheduler
+      "
+
+  # MLflow Tracking Server
+  mlflow:
+    image: ghcr.io/mlflow/mlflow:v2.11.3
+    container_name: mlflow
+    ports:
+      - "5000:5000"
+    environment:
+      - MLFLOW_TRACKING_URI=http://mlflow:5000
+    volumes:
+      - ./mlruns:/mlflow/mlruns
+    command: >
+      mlflow server --backend-store-uri /mlflow/mlruns --host 0.0.0.0 --port 5000
+
+volumes:
+  postgres_data:
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# version: '3.8'
+
+# services:
+#   # PostgreSQL for Airflow metadata and application data
+#   postgres:
+#     image: postgres:13
+#     container_name: airflow-postgres
+#     environment:
+#       POSTGRES_USER: airflow
+#       POSTGRES_PASSWORD: airflow
+#       POSTGRES_DB: airflow  # <-- Airflow expects a DB named airflow for its metadata
+#     ports:
+#       - "5432:5432"
+#     volumes:
+#       - postgres_data:/var/lib/postgresql/data # Persistent volume for PostgreSQL data
+
+#   # MLflow Tracking Server
+#   mlflow:
+#     image: ghcr.io/mlflow/mlflow:v2.11.3 # Using a specific MLflow version for stability
+#     container_name: mlflow
+#     ports:
+#       - "5000:5000" # Expose MLflow UI
+#     environment:
+#       # MLFLOW_TRACKING_URI: points to the postgres service for backend storage
+#       # This will store MLflow metadata (experiments, runs, metrics, params) in PostgreSQL.
+#       # We'll use 'lead_db' for MLflow's backend, which append_to_postgres.py creates.
+#       - MLFLOW_TRACKING_URI=postgresql://airflow:airflow@postgres:5432/lead_db 
+#       # MLFLOW_ARTIFACT_URI: points to a local directory for artifact storage
+#       # This directory needs to be mounted as a volume for persistence
+#       - MLFLOW_ARTIFACT_URI=/mlflow_artifacts # Path inside the MLflow container for artifacts
+#     volumes:
+#       - ./mlruns:/mlflow_artifacts # Mount a local directory to store MLflow artifacts persistently
+#     depends_on:
+#       - postgres # MLflow needs postgres for its backend store
+#     command: >
+#       mlflow server 
+#       --backend-store-uri ${MLFLOW_TRACKING_URI} # Use the URI from environment variable
+#       --default-artifact-root ${MLFLOW_ARTIFACT_URI} # Use the artifact URI from environment variable
+#       --host 0.0.0.0 
+#       --port 5000
+
+#   # Airflow Webserver
+#   airflow-webserver:
+#     build: .
+#     container_name: airflow-webserver
+#     depends_on:
+#       - postgres
+#       - mlflow # Add dependency on mlflow
+#     environment:
+#       - AIRFLOW__CORE__EXECUTOR=LocalExecutor
+#       - AIRFLOW__CORE__SQL_ALCHEMY_CONN=postgresql+psycopg2://airflow:airflow@postgres:5432/airflow # Airflow metadata DB
+#       - _AIRFLOW_WWW_USER_USERNAME=admin
+#       - _AIRFLOW_WWW_USER_PASSWORD=admin
+#       # Set MLflow tracking URI for Airflow tasks to connect to the MLflow server
+#       - MLFLOW_TRACKING_URI=http://mlflow:5000 
+#     volumes:
+#       - ./dags:/opt/airflow/dags
+#       - ./drift_detection:/opt/airflow/drift_detection
+#       - ./model_training:/opt/airflow/model_training
+#       - ./final_model:/opt/airflow/final_model
+#       - ./logs:/opt/airflow/logs
+#       - ./plugins:/opt/airflow/plugins
+#       - ./data:/opt/airflow/data
+#       - ./mlruns:/mlflow_artifacts # Mount mlruns for consistency if Airflow tasks log artifacts directly
+#     ports:
+#       - "8080:8080"
+#     command: >
+#       bash -c "
+#         airflow db upgrade &&
+#         airflow users create --username admin --password admin --firstname admin --lastname admin --role Admin --email admin@example.com &&
+#         airflow webserver
+#       "
+
+#   # Airflow Scheduler
+#   airflow-scheduler:
+#     build: .
+#     container_name: airflow-scheduler
+#     depends_on:
+#       - postgres
+#       - airflow-webserver # Scheduler depends on webserver for db upgrade/user creation
+#       - mlflow # Add dependency on mlflow
+#     environment:
+#       - AIRFLOW__CORE__EXECUTOR=LocalExecutor
+#       - AIRFLOW__CORE__SQL_ALCHEMY_CONN=postgresql+psycopg2://airflow:airflow@postgres:5432/airflow # Airflow metadata DB
+#       - MLFLOW_TRACKING_URI=http://mlflow:5000
+#     volumes:
+#       - ./dags:/opt/airflow/dags
+#       - ./drift_detection:/opt/airflow/drift_detection
+#       - ./model_training:/opt/airflow/model_training
+#       - ./final_model:/opt/airflow/final_model
+#       - ./logs:/opt/airflow/logs
+#       - ./plugins:/opt/airflow/plugins
+#       - ./data:/opt/airflow/data
+#       - ./mlruns:/mlflow_artifacts # Mount mlruns for consistency if Airflow tasks log artifacts directly
+#     command: >
+#       bash -c "
+#         airflow db upgrade &&
+#         airflow scheduler
+#       "
+
+# volumes:
+#   postgres_data: # Define the named volume for PostgreSQL data persistence
