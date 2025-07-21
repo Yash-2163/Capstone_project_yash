@@ -10,6 +10,8 @@ from sklearn.model_selection import GridSearchCV, StratifiedKFold, train_test_sp
 from sklearn.pipeline import Pipeline
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, roc_auc_score
 import warnings
+import shap
+import matplotlib.pyplot as plt
 
 # --- Setup Paths and Imports ---
 # This setup assumes the script is run from a consistent base directory.
@@ -133,3 +135,25 @@ for name, val in metrics.items():
     print(f"  {name.replace('_', ' ').capitalize():15}: {val:.4f}")
 
 print("\n🎉 Full training process complete.")
+
+# --- Step 8: SHAP Explainability Analysis ---
+print("\n▶ Step 8: Running SHAP explainability analysis...")
+
+# SHAP requires the raw model, not the pipeline
+# Extract the trained LGBMClassifier from the pipeline
+model = best_pipeline.named_steps['model']
+# Apply preprocessing to validation data
+X_val_processed = best_pipeline.named_steps['preprocessing'].transform(X_val)
+
+# Create SHAP explainer
+explainer = shap.Explainer(model)
+shap_values = explainer(X_val_processed)
+
+# SHAP summary plot (comment this if running in headless environment)
+plt.figure()
+shap.summary_plot(shap_values, X_val_processed, show=False)
+plt.tight_layout()
+shap_summary_path = os.path.join(FINAL_MODEL_DIR, "shap_summary_plot.png")
+plt.savefig(shap_summary_path)
+print(f"   ✅ SHAP summary plot saved to: {shap_summary_path}")
+
